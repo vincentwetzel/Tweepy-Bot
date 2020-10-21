@@ -10,8 +10,7 @@ import tweepy
 import json
 import os
 
-from typing import List, DefaultDict
-from collections import deque, defaultdict
+from typing import List
 
 import logging
 from datetime import datetime
@@ -23,35 +22,13 @@ handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s:%(name)s: %(me
 logger.addHandler(handler)
 
 # Initialize Bot settings
-description = '''This is Vincent's Discord Bot. Use the !command syntax to send a command to the bot.'''
+description = '''This is Vincent's Twitter Bot. Use the !command syntax to send a command to the bot.'''
 bot = commands.Bot(command_prefix='!', description=description)
 
-# Globals
-alertsOn = True
-messages_waiting_to_send = deque()
-member_names_to_ignore: List[str] = list()
-members_seeking_playmates: DefaultDict[str, List[discord.Member]] = defaultdict(list)
-"""{activity.name : List[discord.Member]}"""
-MEMBERS_TO_IGNORE_FILE = "members_to_ignore.txt"
 ADMIN_DISCORD_ID = None
 
-# Initialize Bot settings
-description = '''This is Vincent's Bot for server management. Use the !command syntax to send a command to the bot.'''
-bot = commands.Bot(command_prefix='!', description=description)
-
-# Globals
-alertsOn = True
-messages_waiting_to_send = deque()
-member_names_to_ignore: List[str] = list()
-members_seeking_playmates: DefaultDict[str, List[discord.Member]] = defaultdict(list)
-"""{activity.name : List[discord.Member]}"""
-MEMBERS_TO_IGNORE_FILE = "members_to_ignore.txt"
-ADMIN_DISCORD_ID = None
-
-
-@bot.command()
-async def alive(ctx: discord.ext.commands.Context) -> None:
-    await ctx.send("I am alive!")
+tracked_ids: List[str] = list()
+tracked_accounts: List[str] = list()
 
 
 @bot.event
@@ -97,57 +74,41 @@ async def init_Tweepy() -> None:
     changed = False
     data_frames: List[pandas.DataFrame] = list()
     for sheet_name in xlsx.sheet_names:
-        df = pandas.read_excel(xlsx, sheet_name, usecols=["Account", "Twitter_ID"])
+        df: pandas.DataFrame = pandas.read_excel(xlsx, sheet_name, usecols=["Account", "Twitter_ID"])
         df.name = sheet_name
         data_frames.append(df)
         for idx, row in df.iterrows():
             if pandas.isnull(row["Twitter_ID"]) or (type(row["Twitter_ID"]) == str and not row["Twitter_ID"].isdigit()):
                 # Excel file contains a blank Twitter_ID OR a misformatted Twitter_ID
-                df.loc[idx, "Twitter_ID"] = str(tweepy_api.get_user(screen_name=row["Account"]).id)
+                val = tweepy_api.get_user(screen_name=row["Account"]).id
+                df.loc[idx, "Twitter_ID"] = val
                 changed = True
-            elif type(row["Twitter_ID"]) is not str:
-                # Excel file contains a number value that needs to be converted to a string
-                df.loc[idx, "Twitter_ID"] = str(row["Twitter_ID"])
-            else:
-                # This row is already good to go
-                pass
+
     if changed:
-        with pandas.ExcelWriter("Twitter_Accounts.xlsx", engine="xlsxwriter",
-                                options={"strings_to_numbers": True}) as writer:
+        with pandas.ExcelWriter("Twitter_Accounts.xlsx", engine="xlsxwriter") as writer:
             for df in data_frames:
                 df.to_excel(writer, df.name, index=False)
             writer.save()
 
-    for df in data_frames:
-        await (await get_text_channel(bot.get_guild(429002252473204736), df.name)).send(
-            await pad_message("Initializing Tweepy streams for: " + df.name))
-        twitter_ids = list()
-        twitter_accounts = list()
-        for idx, row in df.iterrows():
-            twitter_accounts.append(row["Account"])
-            twitter_ids.append(row["Twitter_ID"])
-        await (await get_text_channel(bot.get_guild(429002252473204736), df.name)).send(
-            "streams to initialize: " + str(twitter_accounts))
-        await asyncio.sleep(900)
-        await init_tweepy_streams(tweepy_api, twitter_ids, df.name, True)
-        await (await get_text_channel(bot.get_guild(429002252473204736), df.name)).send(
-            await pad_message("Tweepy initialization complete!"))
+    global tracked_ids
+    global tracked_accounts
 
-    # STREAM: #utpol
-    channel_utpol = await get_text_channel(bot.get_guild(429002252473204736), "utpol")
-    await (channel_utpol).send("Waiting to initialize Tweepy for #utpol...")
-    await asyncio.sleep(5)
-    streamListener_utpol = TweepyStreamListener(discord_message_method=channel_utpol.send,
-                                                async_loop=asyncio.get_event_loop(), skip_retweets=True)
-    stream_utpol = tweepy.Stream(auth=tweepy_api.auth, listener=streamListener_utpol, tweet_mode='extended')
-    stream_utpol.filter(track=["#utpol"], is_async=True)
-    await channel_utpol.send("Tweepy initialized for #utpol")
+    for df in data_frames:
+        # await (await get_text_channel(bot.get_guild(429002252473204736), df.name)).send(
+        #    await pad_message("Initializing Tweepy streams for: " + df.name))
+        for idx, row in df.iterrows():
+            tracked_accounts.append(row["Account"])
+            tracked_ids.append(int(row["Twitter_ID"]))
+        # await asyncio.sleep(900)
+    await init_tweepy_streams(tweepy_api, tracked_ids, "twitter", True)
+    await (await get_text_channel(bot.get_guild(429002252473204736), "twitter")).send(
+        await pad_message("Tweepy initialization complete!"))
 
     await log_msg_to_server_owner("Tweepy has been fully initialized!")
 
 
-async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list, message_channel_name: str,
-                              skip_retweets: bool) -> None:  # TODO: Edit DOCs for twitter_id_list
+async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int], message_channel_name: str,
+                              skip_retweets: bool) -> None:
     """
     Initializes a Tweepy stream.
     :param tweepy_api: The Tweepy API in use
@@ -161,7 +122,7 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list, message_c
                                            async_loop=asyncio.get_event_loop(), skip_retweets=skip_retweets)
 
     stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
-    stream.filter(follow=twitter_id_list, is_async=True)
+    stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True)
 
 
 async def get_text_channel(guild: discord.Guild, channel_name: str) -> discord.TextChannel:
@@ -180,29 +141,6 @@ async def get_text_channel(guild: discord.Guild, channel_name: str) -> discord.T
     return await guild.create_text_channel(channel_name, reason="Text Channel was requested but did not exist.")
 
 
-async def pad_message(msg, add_time_and_date=True, dash_count=75) -> str:
-    """
-    Pads a message with stars
-    :param msg: The message
-    :param add_time_and_date: Adds time and date
-    :param dash_count: The number of stars to use in the padding
-    :return: A new string with the original message padded with stars.
-    """
-    if add_time_and_date:
-        msg = "\n" + (await add_time_and_date_to_string(msg)) + "\n"
-    else:
-        msg = "\n" + msg + "\n"
-    # dash_count = len(log_msg) - 2
-    for x in range(dash_count):
-        msg = "-".join(["", msg, ""])
-    return msg
-
-
-async def add_time_and_date_to_string(msg):
-    return datetime.now().strftime("%m-%d-%y") + "\t" + datetime.now().strftime("%I:%M:%S%p") + "\t" + msg
-
-
-@bot.command(hidden=True)
 async def log_msg_to_server_owner(msg: str, add_time_and_date: bool = True, tts_param=False):
     """
     Sends a DM to the bot's owner.
@@ -212,12 +150,11 @@ async def log_msg_to_server_owner(msg: str, add_time_and_date: bool = True, tts_
     :return:
     """
     msg = await add_time_and_date_to_string(msg) if (add_time_and_date is True) else msg
-    global alertsOn
-    if alertsOn:
-        await (await bot.fetch_user(ADMIN_DISCORD_ID)).send(msg, tts=tts_param)
-    else:
-        global messages_waiting_to_send
-        messages_waiting_to_send.append(msg)
+    await (await bot.fetch_user(ADMIN_DISCORD_ID)).send(msg, tts=tts_param)
+
+
+async def add_time_and_date_to_string(msg):
+    return datetime.now().strftime("%m-%d-%y") + "\t" + datetime.now().strftime("%I:%M:%S%p") + "\t" + msg
 
 
 def init_bot_token(token_file: str) -> str:
@@ -265,14 +202,6 @@ def init_admin_discord_id(id_fname: str) -> int:
         return id
 
 
-def pp_jsonn(json_thing, sort=True, indents=4):
-    if type(json_thing) is str:
-        print(json.dumps(json.loads(json_thing), sort_keys=sort, indent=indents))
-    else:
-        print(json.dumps(json_thing, sort_keys=sort, indent=indents))
-    return None
-
-
 async def pad_message(msg, add_time_and_date=True, dash_count=75) -> str:
     """
     Pads a message with stars
@@ -291,6 +220,14 @@ async def pad_message(msg, add_time_and_date=True, dash_count=75) -> str:
     return msg
 
 
+def pp_jsonn(json_thing, sort=True, indents=4):
+    if type(json_thing) is str:
+        print(json.dumps(json.loads(json_thing), sort_keys=sort, indent=indents))
+    else:
+        print(json.dumps(json_thing, sort_keys=sort, indent=indents))
+    return None
+
+
 class TweepyStreamListener(tweepy.StreamListener):
     def __init__(self, discord_message_method, async_loop, skip_retweets=False, *args, **kwargs):
         super().__init__(*args, **kwargs)
@@ -298,76 +235,18 @@ class TweepyStreamListener(tweepy.StreamListener):
         self.async_loop = async_loop
         self.skip_retweets = skip_retweets
 
-    # noinspection PyMethodMayBeStatic
-    def from_creator(self, status: tweepy.Status) -> bool:
-        """
-        Determines if a Tweeted status originates from that user or someone else.
-        :param status: The Status
-        :return: True/False, depending on whether this is an original tweet from that user.
-        """
-        # print(json.dumps(status._json))
-
-        if hasattr(status, 'retweeted_status'):
-            # Raw retweet
-            return False
-        elif status.in_reply_to_status_id is not None:
-            # A comment in a comment threaad
-            return False
-        elif status.in_reply_to_screen_name is not None:
-            # Replies to a tweet
-            return False
-        elif status.in_reply_to_user_id is not None:
-            print("DEBUG THIS TWEET!")
-            print("status.in_reply_to_user_id is: " + str(status.in_reply_to_user_id))
-            print("status.id:" + str(status.id))
-            return False
-        else:
-            return True
-
     def on_status(self, status: tweepy.Status) -> None:
         """
         # Executes when a new status is Tweeted.
         :param status: The status
         :return: None
         """
-        # check if text has been truncated
-        if hasattr(status, 'retweeted_status'):
-            try:
-                text = status.retweeted_status.extended_tweet["full_text"]
-            except:
-                text = status.retweeted_status.text
-        else:
-            try:
-                text = status.extended_tweet["full_text"]
-            except AttributeError:
-                text = status.text
 
-        # skip retweets
-        if not self.from_creator(status):
-            # Retweet detected
-            return
-        else:
-            # Unique tweet from a unique creator
-            # This CAN be a quoted tweet
+        # Only log tweets authored or retweeted by the tracked User.
+        if status.user.screen_name in tracked_accounts:
             self.send_message("https://twitter.com/" + status.user.screen_name + "/status/" + str(status.id))
-
-        '''
-        # check if this is a quote tweet.
-        is_quote = hasattr(status, "quoted_status")
-        quoted_text = ""
-        if is_quote:
-            # check if quoted tweet's text has been truncated before recording it
-            if hasattr(status.quoted_status, "extended_tweet"):
-                quoted_text = status.quoted_status.extended_tweet["full_text"]
-            else:
-                quoted_text = status.quoted_status.text
-
-        # remove characters that might cause problems with csv encoding
-        remove_characters = [",", "\n"]
-        for c in remove_characters:
-            text.replace(c, " ")
-            quoted_text.replace(c, " ")
-        '''
+        else:
+            return
 
     def on_error(self, status_code) -> None:
         """
@@ -378,7 +257,6 @@ class TweepyStreamListener(tweepy.StreamListener):
         future = asyncio.run_coroutine_threadsafe(
             self.discord_message_method("Error Code (" + str(status_code) + ")"), self.async_loop)
         future.result()
-        exit(1)
 
     def send_message(self, msg) -> None:
         """
