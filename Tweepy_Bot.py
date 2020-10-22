@@ -248,6 +248,10 @@ class TweepyStreamListener(tweepy.StreamListener):
         else:
             return
 
+    def on_exception(self, exception):
+        print("on_exception has caught the following exception:" + str(exception))
+        return
+
     def on_error(self, status_code) -> None:
         """
         Tweepy error handling method
