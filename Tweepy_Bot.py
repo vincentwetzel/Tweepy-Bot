@@ -122,7 +122,7 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int]
                                            async_loop=asyncio.get_event_loop(), skip_retweets=skip_retweets)
 
     stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
-    stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True)
+    stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
 
 
 async def get_text_channel(guild: discord.Guild, channel_name: str) -> discord.TextChannel:
