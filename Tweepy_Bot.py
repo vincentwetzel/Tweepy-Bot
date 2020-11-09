@@ -67,7 +67,8 @@ async def init_Tweepy() -> None:
 
     auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
     auth.set_access_token(access_token, access_token_secret)
-    tweepy_api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True)
+    tweepy_api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True, retry_count=10,
+                            retry_delay=5, retry_errors=[503])
 
     # initialize streams
     xlsx = pandas.ExcelFile("Twitter_Accounts.xlsx")
