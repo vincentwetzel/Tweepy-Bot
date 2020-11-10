@@ -103,7 +103,7 @@ async def init_Tweepy() -> None:
             tracked_accounts.append(row["Account"])
             tracked_ids.append(int(row["Twitter_ID"]))
         # await asyncio.sleep(900)
-    await init_tweepy_streams(tweepy_api, tracked_ids, "twitter", True)
+    asyncio.create_task(init_tweepy_streams(tweepy_api, tracked_ids, "twitter", True))
     await (await get_text_channel(bot.get_guild(429002252473204736), "twitter")).send(
         await pad_message("Tweepy initialization complete!"))
 
@@ -123,13 +123,12 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int]
     message_channel = await get_text_channel(bot.get_guild(429002252473204736), message_channel_name)
     stream_listener = TweepyStreamListener(discord_message_method=message_channel.send,
                                            async_loop=asyncio.get_event_loop(), skip_retweets=skip_retweets)
-    while True:
-        try:
-            stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
-            stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
-        except IncompleteRead as e:
-            print(e)
-            continue
+    try:
+        stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
+        stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
+    except IncompleteRead as e:
+        print(e)
+        init_tweepy_streams(tweepy_api, twitter_id_list, message_channel_name, skip_retweets)
 
 
 async def get_text_channel(guild: discord.Guild, channel_name: str) -> discord.TextChannel:
