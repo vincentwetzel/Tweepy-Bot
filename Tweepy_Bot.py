@@ -15,6 +15,8 @@ from typing import List
 import logging
 from datetime import datetime
 
+from http.client import IncompleteRead
+
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
@@ -121,9 +123,13 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int]
     message_channel = await get_text_channel(bot.get_guild(429002252473204736), message_channel_name)
     stream_listener = TweepyStreamListener(discord_message_method=message_channel.send,
                                            async_loop=asyncio.get_event_loop(), skip_retweets=skip_retweets)
-
-    stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
-    stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
+    while True:
+        try:
+            stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
+            stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
+        except IncompleteRead as e:
+            print(e)
+            continue
 
 
 async def get_text_channel(guild: discord.Guild, channel_name: str) -> discord.TextChannel:
