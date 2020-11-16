@@ -69,8 +69,8 @@ async def init_Tweepy() -> None:
 
     auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
     auth.set_access_token(access_token, access_token_secret)
-    tweepy_api = tweepy.API(auth, wait_on_rate_limit=True, wait_on_rate_limit_notify=True, retry_count=10,
-                            retry_delay=5, retry_errors=[503])
+    tweepy_api = tweepy.API(auth, monitor_rate_limit=True, wait_on_rate_limit=True, wait_on_rate_limit_notify=True,
+                            retry_count=10, retry_delay=5, retry_errors=[503])
 
     # initialize streams
     xlsx = pandas.ExcelFile("Twitter_Accounts.xlsx")
@@ -123,12 +123,9 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int]
     message_channel = await get_text_channel(bot.get_guild(429002252473204736), message_channel_name)
     stream_listener = TweepyStreamListener(discord_message_method=message_channel.send,
                                            async_loop=asyncio.get_event_loop(), skip_retweets=skip_retweets)
-    try:
-        stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
-        stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
-    except IncompleteRead as e:
-        print(e)
-        init_tweepy_streams(tweepy_api, twitter_id_list, message_channel_name, skip_retweets)
+
+    stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
+    stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
 
 
 async def get_text_channel(guild: discord.Guild, channel_name: str) -> discord.TextChannel:
