@@ -17,6 +17,8 @@ from datetime import datetime
 
 from http.client import IncompleteRead
 
+from discord.ext.commands import CommandNotFound
+
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
@@ -120,11 +122,13 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int]
     :param skip_retweets: Whether or not retweets/mentions should be documented.
     :return: None
     """
-    message_channel = await get_text_channel(bot.get_guild(429002252473204736), message_channel_name)
-    stream_listener = TweepyStreamListener(discord_message_method=message_channel.send,
-                                           async_loop=asyncio.get_event_loop(), skip_retweets=skip_retweets)
+    message_channel: discord.TextChannel = await get_text_channel(bot.get_guild(429002252473204736),
+                                                                  message_channel_name)
+    stream_listener: tweepy.StreamListener = TweepyStreamListener(discord_message_method=message_channel.send,
+                                                                  async_loop=asyncio.get_event_loop(),
+                                                                  skip_retweets=skip_retweets)
 
-    stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
+    stream: tweepy.Stream = tweepy.Stream(auth=tweepy_api.auth, listener=stream_listener, tweet_mode='extended')
     stream.filter(follow=[str(x) for x in twitter_id_list], is_async=True, stall_warnings=True)
 
 
@@ -221,6 +225,13 @@ async def pad_message(msg, add_time_and_date=True, dash_count=75) -> str:
     for x in range(dash_count):
         msg = "-".join(["", msg, ""])
     return msg
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, CommandNotFound):
+        return
+    raise error
 
 
 def pp_jsonn(json_thing, sort=True, indents=4):
