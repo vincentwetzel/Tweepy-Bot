@@ -19,6 +19,8 @@ from http.client import IncompleteRead
 
 from discord.ext.commands import CommandNotFound
 
+BOT_GUILD_ID = None
+
 logger = logging.getLogger('discord')
 logger.setLevel(logging.DEBUG)
 handler = logging.FileHandler(filename='discord.log', encoding='utf-8', mode='w')
@@ -67,7 +69,7 @@ async def init_Tweepy() -> None:
             elif "access_token_secret=" in line:
                 access_token_secret = line.split("access_token_secret=")[1].strip()
             else:
-                raise Exception("The settings failed to initiate from the settings file.")
+                raise Exception("The settings failed to initiate from the settings fname.")
 
     auth = tweepy.OAuthHandler(consumer_key, consumer_secret)
     auth.set_access_token(access_token, access_token_secret)
@@ -84,7 +86,7 @@ async def init_Tweepy() -> None:
         data_frames.append(df)
         for idx, row in df.iterrows():
             if pandas.isnull(row["Twitter_ID"]) or (type(row["Twitter_ID"]) == str and not row["Twitter_ID"].isdigit()):
-                # Excel file contains a blank Twitter_ID OR a misformatted Twitter_ID
+                # Excel fname contains a blank Twitter_ID OR a misformatted Twitter_ID
                 val = tweepy_api.get_user(screen_name=row["Account"]).id
                 df.loc[idx, "Twitter_ID"] = val
                 changed = True
@@ -99,14 +101,12 @@ async def init_Tweepy() -> None:
     global tracked_accounts
 
     for df in data_frames:
-        # await (await get_text_channel(bot.get_guild(429002252473204736), df.name)).send(
-        #    await pad_message("Initializing Tweepy streams for: " + df.name))
         for idx, row in df.iterrows():
             tracked_accounts.append(row["Account"])
             tracked_ids.append(int(row["Twitter_ID"]))
         # await asyncio.sleep(900)
     asyncio.create_task(init_tweepy_streams(tweepy_api, tracked_ids, "twitter", True))
-    await (await get_text_channel(bot.get_guild(429002252473204736), "twitter")).send(
+    await (await get_text_channel(bot.get_guild(BOT_GUILD_ID), "twitter")).send(
         await pad_message("Tweepy initialization complete!"))
 
     await log_msg_to_server_owner("Tweepy has been fully initialized!")
@@ -122,7 +122,7 @@ async def init_tweepy_streams(tweepy_api: tweepy.API, twitter_id_list: List[int]
     :param skip_retweets: Whether or not retweets/mentions should be documented.
     :return: None
     """
-    message_channel: discord.TextChannel = await get_text_channel(bot.get_guild(429002252473204736),
+    message_channel: discord.TextChannel = await get_text_channel(bot.get_guild(BOT_GUILD_ID),
                                                                   message_channel_name)
     stream_listener: tweepy.StreamListener = TweepyStreamListener(discord_message_method=message_channel.send,
                                                                   async_loop=asyncio.get_event_loop(),
@@ -164,21 +164,22 @@ async def add_time_and_date_to_string(msg):
     return datetime.now().strftime("%m-%d-%y") + "\t" + datetime.now().strftime("%I:%M:%S%p") + "\t" + msg
 
 
-def init_bot_token(token_file: str) -> str:
+def init_value_from_file(fname: str) -> str:
     """
-    Gets the bot's token from a file
-    :param token_file: The token file from which to get the bot's token number.
-    :return: The bot's token as a string.
+    This is used to initialize a text value from a file
+    :param fname: The filename from which to get the value.
+    :return: The value as a str
     """
-    if not os.path.exists(token_file):
-        with open(token_file, 'a') as f:  # 'a' opens for appending without truncating
-            token = input("The token file does not exist. Please enter the bot's token: ")
+    if not os.path.exists(fname):
+        with open(fname, 'a') as f:  # 'a' opens for appending without truncating
+            token = input(
+                fname + " does not exist. Please enter the value that is supposed to be stored in this file: ")
             f.write(token)
     else:
-        with open(token_file, 'r+') as f:  # 'r+' is reading/writing mode, stream positioned at start of file
+        with open(fname, 'r+') as f:  # 'r+' is reading/writing mode, stream positioned at start of fname
             token = f.readline().rstrip('\n')  # readline() usually has a \n at the end of it
             if not token:
-                token = input("The token file is empty. Please enter the bot's token: ")
+                token = input(fname + " is empty. Please enter the value that is supposed to be stored in this file: ")
                 f.write(token)
     return token
 
@@ -186,7 +187,7 @@ def init_bot_token(token_file: str) -> str:
 def init_admin_discord_id(id_fname: str) -> int:
     """
     Initializes the owner ID so the bot knows who is in charge.
-    :param id_fname: The name of the file that contains the admin's id number
+    :param id_fname: The name of the fname that contains the admin's id number
     :return: The ID of the admin user as a string.
     """
     if os.path.isfile("admin_dicord_id.txt"):
@@ -199,10 +200,10 @@ def init_admin_discord_id(id_fname: str) -> int:
                     except ValueError as e:
                         print(e)
                         print("There was an issue with the discord ID found in " + id_fname
-                              + ". This file should only contain an 18-digit number and nothing else")
+                              + ". This fname should only contain an 18-digit number and nothing else")
             except EOFError as e:
                 print(e)
-                print(id_fname + " is empty. This file must contain the user ID of the bot's admin")
+                print(id_fname + " is empty. This fname must contain the user ID of the bot's admin")
     with open("admin_dicord_id.txt", "w") as f:
         id = input("Please enter the Discord ID number for the admin you want this bot to report to: ")
         f.write(id)
@@ -293,6 +294,14 @@ if __name__ == "__main__":
         ADMIN_DISCORD_ID = int(init_admin_discord_id("admin_discord_id.txt"))
     except TypeError as e:
         print(e)
-        print("This error means that there is something wrong with your admin_discord_id.txt file.")
+        print("This error means that there is something wrong with your admin_discord_id.txt fname.")
+    # global BOT_GUILD_ID
+    try:
+        BOT_GUILD_ID = int(init_value_from_file("bot_guild_id.txt"))
+    except TypeError:
+        print(e)
+        print(
+            "This error means that the value initialized from bot_guild_id.txt was unable to convert to an integer."
+            "Please make sure that this text file stores an integer value.")
 
-    bot.run(init_bot_token("discord_token.txt"))
+    bot.run(init_value_from_file("discord_token.txt"))
